@@ -57,7 +57,7 @@ public final class Main {
                     Integer.parseInt(proxyPort),
                     new TdApi.ProxyTypeMtproto(proxySecret.trim())
             );
-            client.send(new TdApi.AddProxy(proxy, true)).get(30, TimeUnit.SECONDS);
+            client.send(new TdApi.AddProxy(proxy, true, "")).get(30, TimeUnit.SECONDS);
         }
 
         client.getMeAsync().get(90, TimeUnit.SECONDS);
