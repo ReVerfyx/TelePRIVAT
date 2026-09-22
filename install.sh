@@ -23,10 +23,10 @@ ask() {
     return
   fi
   if [ -n "$default_value" ]; then
-    read -r -p "$prompt [$default_value]: " current
+    read -r -p "$prompt [$default_value]: " current </dev/tty
     current="${current:-$default_value}"
   else
-    read -r -p "$prompt: " current
+    read -r -p "$prompt: " current </dev/tty
   fi
   printf -v "$var_name" '%s' "$current"
 }
@@ -39,7 +39,7 @@ ask_secret() {
     printf -v "$var_name" '%s' "$current"
     return
   fi
-  read -r -s -p "$prompt: " current
+  read -r -s -p "$prompt: " current </dev/tty
   echo
   printf -v "$var_name" '%s' "$current"
 }
