@@ -1,0 +1,9 @@
+.env
+server/node_modules/
+server/dist/
+telegram-upstream/
+*.keystore
+*.jks
+.idea/
+.gradle/
+local.properties
