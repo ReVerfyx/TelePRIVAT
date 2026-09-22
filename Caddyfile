@@ -1,0 +1,14 @@
+{$TELEPRIVAT_DOMAIN} {
+    encode zstd gzip
+
+    @api path /api/*
+    handle @api {
+        reverse_proxy api:8080
+    }
+
+    handle /health {
+        reverse_proxy api:8080
+    }
+
+    respond "TelePRIVAT API" 200
+}
