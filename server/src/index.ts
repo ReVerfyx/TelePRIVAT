@@ -94,7 +94,7 @@ async function resolveTelegramUsername(rawUsername: string): Promise<TelegramRes
 
 app.setErrorHandler((error, _request, reply) => {
   const status = (error as any).statusCode ?? 400;
-  reply.code(status).send({ error: error.message || "BAD_REQUEST" });
+  reply.code(status).send({ error: (error as any).message || "BAD_REQUEST" });
 });
 
 app.get("/health", async () => {
