@@ -7,7 +7,7 @@ RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends libssl3 zlib1g ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libssl3 zlib1g ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/target/telegram-resolver-0.1.0.jar /app/app.jar
 RUN mkdir -p /data/tdlib /data/downloads
 EXPOSE 8090
