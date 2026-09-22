@@ -15,6 +15,19 @@ services:
       timeout: 5s
       retries: 20
 
+  telegram-resolver:
+    build: ./telegram-resolver
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - telegram_tdlib:/data/tdlib
+      - telegram_downloads:/data/downloads
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8090/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
   api:
     build: ./server
     restart: unless-stopped
@@ -22,6 +35,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      telegram-resolver:
+        condition: service_started
     volumes:
       - profile_cache:/data/profile-cache
 
@@ -43,5 +58,7 @@ services:
 volumes:
   postgres_data:
   profile_cache:
+  telegram_tdlib:
+  telegram_downloads:
   caddy_data:
   caddy_config:
