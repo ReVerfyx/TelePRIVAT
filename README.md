@@ -61,3 +61,16 @@ Use the official source as the base:
 ```
 
 This clones Telegram Android with submodules and applies/copies the TelePRIVAT overlay. Keep the upstream GPL notices and publish corresponding source for distributed builds.
+
+
+## One-command VPS installer
+
+On Ubuntu 24.04:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ReVerfyx/TelePRIVAT/main/install.sh | sudo bash
+```
+
+The installer asks for the API domain, Telegram api_id/api_hash, a dedicated bot token, and an MTProto proxy host/port/secret. It generates database/JWT/admin/internal resolver secrets automatically and starts the full Docker Compose stack.
+
+Public Telegram profiles are resolved on demand through the private TDLib resolver and cached; TelePRIVAT accounts themselves are stored in PostgreSQL and use TelePRIVAT username/password.
