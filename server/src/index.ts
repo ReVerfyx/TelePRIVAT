@@ -11,6 +11,8 @@ const PORT = Number(process.env.PORT ?? 8080);
 const DATABASE_URL = process.env.DATABASE_URL;
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+const TELEGRAM_RESOLVER_URL = process.env.TELEGRAM_RESOLVER_URL ?? "http://telegram-resolver:8090";
+const TELEGRAM_RESOLVER_TOKEN = process.env.TELEGRAM_RESOLVER_TOKEN;
 
 if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
 if (!JWT_SECRET || JWT_SECRET.length < 32) throw new Error("JWT_SECRET must be at least 32 characters");
@@ -47,6 +49,48 @@ const usernameSchema = z.string().transform(cleanUsername).pipe(
   z.string().regex(/^[a-z0-9_]{3,32}$/, "username must be 3-32 chars: a-z, 0-9, _")
 );
 const passwordSchema = z.string().min(8).max(128);
+
+type TelegramResolvedProfile = {
+  telegram_user_id: string;
+  username: string;
+  display_name: string;
+  has_avatar?: boolean;
+  source: "telegram_mtproto";
+};
+
+async function resolveTelegramUsername(rawUsername: string): Promise<TelegramResolvedProfile | null> {
+  if (!TELEGRAM_RESOLVER_TOKEN) return null;
+  const username = usernameSchema.parse(rawUsername);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const url = new URL("/resolve", TELEGRAM_RESOLVER_URL);
+    url.searchParams.set("username", username);
+    const response = await fetch(url, {
+      headers: { "X-Resolver-Token": TELEGRAM_RESOLVER_TOKEN },
+      signal: controller.signal
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error("TELEGRAM_RESOLVER_UNAVAILABLE");
+
+    const profile = await response.json() as TelegramResolvedProfile;
+    await pool.query(
+      `INSERT INTO telegram_profile_cache(
+          telegram_user_id, username, display_name, verified, last_synced_at, last_accessed_at
+        )
+        VALUES($1,$2,$3,false,now(),now())
+        ON CONFLICT (telegram_user_id) DO UPDATE SET
+          username=EXCLUDED.username,
+          display_name=EXCLUDED.display_name,
+          last_synced_at=now(),
+          last_accessed_at=now()`,
+      [profile.telegram_user_id, profile.username, profile.display_name]
+    );
+    return profile;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 app.setErrorHandler((error, _request, reply) => {
   const status = (error as any).statusCode ?? 400;
@@ -331,15 +375,57 @@ app.get("/api/v1/gifts/mine", async (request) => {
   return { gifts: rows };
 });
 
+app.get("/api/v1/telegram/resolve/:username", async (request, reply) => {
+  const username = usernameSchema.parse((request.params as any).username);
+
+  const cached = await pool.query(
+    `SELECT telegram_user_id::text AS id, username::text, display_name,
+            avatar_remote_url AS avatar_url, verified, 'telegram_cache' AS source
+       FROM telegram_profile_cache
+       WHERE username=$1
+       LIMIT 1`,
+    [username]
+  );
+
+  if (cached.rows[0]) {
+    await pool.query(
+      "UPDATE telegram_profile_cache SET last_accessed_at=now() WHERE telegram_user_id=$1",
+      [cached.rows[0].id]
+    );
+    return { profile: cached.rows[0], cached: true };
+  }
+
+  const resolved = await resolveTelegramUsername(username);
+  if (!resolved) {
+    reply.code(404);
+    return { error: "TELEGRAM_USERNAME_NOT_FOUND" };
+  }
+
+  return {
+    profile: {
+      id: resolved.telegram_user_id,
+      username: resolved.username,
+      display_name: resolved.display_name,
+      avatar_url: null,
+      verified: false,
+      source: resolved.source
+    },
+    cached: false
+  };
+});
+
 app.get("/api/v1/search", async (request) => {
-  const q = z.string().trim().min(2).max(64).parse((request.query as any).q);
+  const qRaw = z.string().trim().min(2).max(64).parse((request.query as any).q);
+  const q = qRaw.replace(/^@/, "");
+
   const local = await pool.query(
     `SELECT id, username::text, display_name, avatar_url, 'teleprivat' AS source
        FROM users WHERE username ILIKE $1 OR display_name ILIKE $1
        ORDER BY username LIMIT 25`,
     [`%${q}%`]
   );
-  const cached = await pool.query(
+
+  let cached = await pool.query(
     `SELECT telegram_user_id::text AS id, username::text, display_name,
             avatar_remote_url AS avatar_url, verified, 'telegram_cache' AS source
        FROM telegram_profile_cache
@@ -347,6 +433,28 @@ app.get("/api/v1/search", async (request) => {
        ORDER BY last_accessed_at DESC LIMIT 25`,
     [`%${q}%`]
   );
+
+  const exactUsername = /^[a-zA-Z0-9_]{3,32}$/.test(q);
+  const hasExact = cached.rows.some((row: any) => String(row.username).toLowerCase() === q.toLowerCase());
+
+  if (exactUsername && !hasExact) {
+    try {
+      const resolved = await resolveTelegramUsername(q);
+      if (resolved) {
+        cached = await pool.query(
+          `SELECT telegram_user_id::text AS id, username::text, display_name,
+                  avatar_remote_url AS avatar_url, verified, 'telegram_cache' AS source
+             FROM telegram_profile_cache
+             WHERE username ILIKE $1 OR display_name ILIKE $1
+             ORDER BY last_accessed_at DESC LIMIT 25`,
+          [`%${q}%`]
+        );
+      }
+    } catch (error) {
+      app.log.warn({ err: error }, "Telegram resolver unavailable");
+    }
+  }
+
   return { results: [...local.rows, ...cached.rows].slice(0, 40) };
 });
 
